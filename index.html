@@ -3,11 +3,29 @@
 @import url(//cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.2/leaflet.css);
 @import url(../style.css?aea6f0a);
 
-#map {
+#main {
   width: 960px;
-  height: 500px;
+  height: 665px;
+  display: inline-block;
 }
-
+#map{
+	width: 960px;
+	height: 500px;
+}
+#textPane {
+  width: 960px;
+  height: 165px;
+  overflow: auto;
+}
+#side {
+	width: 320px;
+	height: 665px;
+	vertical-align: top;
+	display: inline-block;
+}
+#hist #type #category {
+	height: 160px;
+}
 svg {
   position: relative;
 }
@@ -26,23 +44,246 @@ path:hover {
 .dot{
 	fill: black;
 }
-
+.axis path, .axis line {
+  fill: none;
+  stroke: #000;
+  shape-rendering: crispEdges;
+}
+svg text{
+	font-size: 10px;
+}
+body {
+	font-family: sans-serif;
+}
+table {
+	font-size: 11px;
+}
 </style>
 <body>
-	<div id = "map"></p>
+	<div>
+		<div id = "main">
+			<div id = "map"></div>
+			<div id = "textPane"></div>
+		</div>
+		<div id = "side">
+			<div id = "hist"></div>
+			<div id = "type"></div>
+			<div id = "category"></div>
+			<div id = "attack"></div>
+		</div>
+	<div>
 </body>
 <script src="http://d3js.org/d3.v3.min.js"></script>
 <script src="http://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.2/leaflet.js"></script>
 <script>
 
-var width = 960, height = 500
-var map = new L.Map("map", {center: [34.1, 68], zoom: 6})
-    .addLayer(new L.TileLayer("http://{s}.tiles.mapbox.com/v3/examples.map-zr0njcqy/{z}/{x}/{y}.png"));
-
-var svg = d3.select(map.getPanes().overlayPane).append("svg"),
-    g = svg.append("g").attr("class", "leaflet-zoom-hide");
-
 d3.csv("incidents.csv", function(data){
+	buildMap(data)
+	buildHist(data)
+	buildTypeBar(data)
+	buildCatBar(data)
+	buildAttackBar(data)
+	buildDetailsTable(data)
+})
+function buildDetailsTable(data){
+	var table = d3.select("#textPane")
+		.append("table")
+	var keys = ["Guardian headline", "type", "category", "attackon", "friendlywia","friendlykia","hostnationwia","hostnationkia","civilianwia","civiliankia","enemywia","enemykia"]
+	var rows = table.selectAll("tr").data(data)
+		.enter()
+	  .append("tr")
+	  	.each(row(keys))
+	var titleRow = table.insert("tr", ":first-child")
+	titleRow.selectAll("td")
+		.data(keys)
+	  .enter()
+	  	.append("td")
+	  	.text(function(d){return d})
+}
+function buildTypeBar(data){
+	var width = 320, height = 165
+	
+	var svg = d3.select("#type").append("svg")
+		.attr("height", height)
+		.attr("width", width)
+	
+	var margin = {}
+	margin["top"] = margin["bottom"] = height * 0.1
+	margin["right"] = margin["left"] = width * 0.1
+	height = height - margin.top - margin.bottom
+	width = width - margin.left - margin.right
+
+	var nest = d3.nest()
+		.key(function(d){return d.type})
+		.entries(data)
+	var y = d3.scale.linear()
+	    .domain([0, Math.ceil(d3.max(nest, function(d){return d.values.length}) / 5) * 5])
+	    .range([height, 0]);
+	var yAxis = d3.svg.axis()
+		.scale(y)
+		.orient("left");
+	var x = d3.scale.ordinal()
+		.domain(nest.map(function(d){return d.key}))
+		.rangeBands([0,width], 0.2)
+	var color = d3.scale.category20().domain(x.domain())
+	svg = svg.append("g")
+		.attr("transform", "translate(" + margin.left + "," + margin.top + ")")
+	var bars = svg.selectAll("g")
+		.data(nest)
+	  .enter().append("g")
+	    .attr("transform", function(d) { return "translate(" + x(d.key) + ",0)"; });
+	bars.append("rect")
+      .attr("y", function(d) { return y(d.values.length); })
+      .attr("height", function(d) { return height - y(d.values.length); })
+      .attr("width", x.rangeBand())
+      .attr("fill", function(d){return color(d.key)});
+    svg.append("g")
+	    .attr("class", "y axis")
+		.call(yAxis);
+}
+function buildCatBar(data){
+	var width = 320, height = 165
+	
+	var svg = d3.select("#type").append("svg")
+		.attr("height", height)
+		.attr("width", width)
+	
+	var margin = {}
+	margin["top"] = margin["bottom"] = height * 0.1
+	margin["right"] = margin["left"] = width * 0.1
+	height = height - margin.top - margin.bottom
+	width = width - margin.left - margin.right
+
+	var nest = d3.nest()
+		.key(function(d){return d.category})
+		.entries(data)
+	var y = d3.scale.linear()
+	    .domain([0, Math.ceil(d3.max(nest, function(d){return d.values.length}) / 5) * 5])
+	    .range([height, 0]);
+	var yAxis = d3.svg.axis()
+		.scale(y)
+		.orient("left");
+	var x = d3.scale.ordinal()
+		.domain(nest.map(function(d){return d.key}))
+		.rangeBands([0,width], 0.2)
+	var color = d3.scale.category20b().domain(x.domain())
+	svg = svg.append("g")
+		.attr("transform", "translate(" + margin.left + "," + margin.top + ")")
+	var bars = svg.selectAll("g")
+		.data(nest)
+	  .enter().append("g")
+	    .attr("transform", function(d) { return "translate(" + x(d.key) + ",0)"; });
+	bars.append("rect")
+      .attr("y", function(d) { return y(d.values.length); })
+      .attr("height", function(d) { return height - y(d.values.length); })
+      .attr("width", x.rangeBand())
+      .attr("fill", function(d){return color(d.key)});
+    svg.append("g")
+	    .attr("class", "y axis")
+		.call(yAxis);
+}
+function buildAttackBar(data){
+	var width = 320, height = 165
+	
+	var svg = d3.select("#attack").append("svg")
+		.attr("height", height)
+		.attr("width", width)
+	
+	var margin = {}
+	margin["top"] = margin["bottom"] = height * 0.1
+	margin["right"] = margin["left"] = width * 0.1
+	height = height - margin.top - margin.bottom
+	width = width - margin.left - margin.right
+
+	var nest = d3.nest()
+		.key(function(d){return d.attackon})
+		.entries(data)
+	var y = d3.scale.linear()
+	    .domain([0, Math.ceil(d3.max(nest, function(d){return d.values.length}) / 5) * 5])
+	    .range([height, 0]);
+	var yAxis = d3.svg.axis()
+		.scale(y)
+		.orient("left");
+	var x = d3.scale.ordinal()
+		.domain(nest.map(function(d){return d.key}))
+		.rangeBands([0,width], 0.2)
+	var color = d3.scale.category20c().domain(x.domain())
+	svg = svg.append("g")
+		.attr("transform", "translate(" + margin.left + "," + margin.top + ")")
+	var bars = svg.selectAll("g")
+		.data(nest)
+	  .enter().append("g")
+	    .attr("transform", function(d) { return "translate(" + x(d.key) + ",0)"; });
+	bars.append("rect")
+      .attr("y", function(d) { return y(d.values.length); })
+      .attr("height", function(d) { return height - y(d.values.length); })
+      .attr("width", x.rangeBand())
+      .attr("fill", function(d){return color(d.key)});
+    svg.append("g")
+	    .attr("class", "y axis")
+		.call(yAxis);
+}
+function buildHist(data){
+	var width = 320, height = 165
+	var svg = d3.select("#hist").append("svg")
+		.attr("height", height)
+		.attr("width", width)
+
+	var margin = {}
+	margin["top"] = margin["bottom"] = height * 0.1
+	margin["right"] = margin["left"] = width * 0.1
+	height = height - margin.top - margin.bottom
+	width = width - margin.left - margin.right
+
+	var countFormat = d3.format(",.0f");
+	var x = d3.scale.linear()
+	    .domain(d3.extent(data, function(d){return parseInt(d.civiliankia) + parseInt(d.civilianwia)}))
+	    .range([0, width]);
+
+	var counts = d3.layout.histogram()
+	    .bins(x.ticks(20))
+	    (data.map(function(d){return parseInt(d.civiliankia) + parseInt(d.civilianwia)}));
+
+	var y = d3.scale.linear()
+	    .domain([0, Math.ceil(d3.max(counts, function(d) { return d.y; }) / 5) * 5])
+	      .range([height, 0]);
+
+	var yAxis = d3.svg.axis()
+		.scale(y)
+		.orient("left");
+	var xAxis = d3.svg.axis()
+	    .scale(x)
+	    .orient("bottom");
+	svg = svg.append("g")
+		.attr("transform", "translate(" + margin.left + "," + margin.top + ")")
+	
+	var bars = svg.selectAll(".bar")
+	    .data(counts)
+	  .enter().append("g")
+	    .attr("class", "bar")
+	    .attr("transform", function(d) { return "translate(" + x(d.x) + "," + y(d.y) + ")"; });
+	
+	bars.append("rect")
+	    .attr("x", 1)
+	    .attr("width", x(counts[0].dx) - 1)
+	    .attr("height", function(d) { return height - y(d.y); })
+	    .attr("fill", "steelblue");
+
+	svg.append("g")
+	    .attr("class", "x axis")
+	    .attr("transform", "translate(0," + height + ")")
+	    .call(xAxis);
+	svg.append("g")
+	    .attr("class", "y axis")
+		.call(yAxis);
+}
+function buildMap(data){
+	var width = 960, height = 500
+	var map = new L.Map("map", {center: [34.1, 68], zoom: 6})
+	    .addLayer(new L.TileLayer("http://{s}.tiles.mapbox.com/v3/examples.map-zr0njcqy/{z}/{x}/{y}.png"));
+
+	var svg = d3.select(map.getPanes().overlayPane).append("svg"),
+    	g = svg.append("g").attr("class", "leaflet-zoom-hide");
 	var collection = {
 		"type": "FeatureCollection"
 		,"features": data.map(function(d){
@@ -122,9 +363,7 @@ d3.csv("incidents.csv", function(data){
 		var point = map.latLngToLayerPoint(new L.LatLng(y, x));
 		this.stream.point(point.x, point.y);
 	} // end projectPoint
-
-}) // end d3.csv
-
+}
 function pointsReduce(points) {
 	// Takes an array of points with x-y coordinates & radii
 	// Returns array without overlap
@@ -202,5 +441,13 @@ function visual(build, update, id){
 	// each of build and update should take an argument for data
 	this.build = build(id)
 	this.update = update(id)
+}
+function row(keys){
+	return function(d){
+		var r = d3.select(this)
+		keys.forEach(function(key){
+			r.append("td").text(d[key] == 0 ? "" :d[key])
+		})
+	}
 }
 </script>
