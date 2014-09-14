@@ -58,6 +58,38 @@ body {
 table {
 	font-size: 11px;
 }
+.d3-tip {
+  line-height: 1;
+  padding: 6px;
+  background: rgba(0, 0, 0, 0.8);
+  color: #fff;
+  border-radius: 2px;
+  text-align: center;
+  font-size: 10px;
+}
+.d3-tip:after {
+  box-sizing: border-box;
+  display: inline;
+  font-size: 10px;
+  width: 100%;
+  line-height: 1;
+  color: rgba(0, 0, 0, 0.8);
+  content: "\25BC";
+  position: absolute;
+  text-align: center;
+}
+.active {
+	fill-opacity: 1;
+}
+.inactive {
+	fill-opacity: 0.5;
+}
+/* Style northward tooltips differently */
+.d3-tip.n:after {
+  margin: -1px 0 0 0;
+  top: 100%;
+  left: 0;
+}
 </style>
 <body>
 	<div>
@@ -75,8 +107,9 @@ table {
 </body>
 <script src="http://d3js.org/d3.v3.min.js"></script>
 <script src="http://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.2/leaflet.js"></script>
+<script src="d3-tip.js"></script>
 <script>
-
+var filters = {}
 d3.csv("incidents.csv", function(data){
 	buildMap(data)
 	buildHist(data)
@@ -85,6 +118,29 @@ d3.csv("incidents.csv", function(data){
 	buildAttackBar(data)
 	buildDetailsTable(data)
 })
+
+function update(filters, data){
+	updateTypeBar(filters, data)
+	updateCatBar(filters, data)
+	updateAttackBar(filters, data)
+	updateMap(filters, data)
+}
+
+function buildFilterFunctions(visKeyField, filters){
+	console.log(visKeyField)
+	var keys = d3.keys(filters)
+	return keys.map(function(key){
+		if (key == visKeyField){
+			return function(datum){
+				return true
+			}
+		} else {
+			return function(datum){
+				return filters[key].indexOf(datum[key]) >= 0
+			}
+		}
+	})
+}
 function buildDetailsTable(data){
 	var table = d3.select("#textPane")
 		.append("table")
@@ -102,17 +158,23 @@ function buildDetailsTable(data){
 }
 function buildTypeBar(data){
 	var width = 320, height = 165
-	
+	var tip = d3.tip()
+		.attr("class", "d3-tip")
+		.html(function(d){return "<p>" + d.key + "</p><p>" + d.values.length + " incidents</p>"})
 	var svg = d3.select("#type").append("svg")
 		.attr("height", height)
 		.attr("width", width)
-	
+		.call(tip)
+
 	var margin = {}
 	margin["top"] = margin["bottom"] = height * 0.1
 	margin["right"] = margin["left"] = width * 0.1
 	height = height - margin.top - margin.bottom
 	width = width - margin.left - margin.right
-
+	svg.append("text")
+		.attr("x", margin.left)
+		.attr("y", 10)
+		.text("Event type")
 	var nest = d3.nest()
 		.key(function(d){return d.type})
 		.entries(data)
@@ -127,33 +189,124 @@ function buildTypeBar(data){
 		.rangeBands([0,width], 0.2)
 	var color = d3.scale.category20().domain(x.domain())
 	svg = svg.append("g")
+		.attr("class", "inlet")
 		.attr("transform", "translate(" + margin.left + "," + margin.top + ")")
-	var bars = svg.selectAll("g")
-		.data(nest)
-	  .enter().append("g")
-	    .attr("transform", function(d) { return "translate(" + x(d.key) + ",0)"; });
-	bars.append("rect")
-      .attr("y", function(d) { return y(d.values.length); })
-      .attr("height", function(d) { return height - y(d.values.length); })
-      .attr("width", x.rangeBand())
-      .attr("fill", function(d){return color(d.key)});
+		.call(tip)
+
+	var bars = svg.selectAll("rect")
+		.data(nest, function(d){return d.key})
+	  .enter().append("rect")
+		.attr("class", "bar")
+		.attr("x", function(d){return x(d.key)})
+		.attr("y", function(d) { return y(d.values.length); })
+		.attr("height", function(d) { return height - y(d.values.length); })
+		.attr("width", x.rangeBand())
+		.attr("fill", function(d){return color(d.key)})
+		.on("mouseover", tip.show)
+		.on("mouseout", tip.hide)
+		.on("click", rectClick(data, svg, "type"));
+
     svg.append("g")
 	    .attr("class", "y axis")
 		.call(yAxis);
 }
+function rectClick(data, svg, visKeyField){
+	return function(d){
+      	d3.select(this).attr("class", "active")
+      	svg.selectAll("rect").each(function(d){
+      		var el = d3.select(this)
+      		el.classed("inactive", el.classed("active") ? false : true)
+      	})
+      	filters[visKeyField] = svg.selectAll(".active").data().map(function(d){return d.key})
+      	update(filters, data)
+      }
+}
+function multiFilter(data, filterFunctions){
+	var newData = data.filter(filterFunctions[0])
+	if (filterFunctions.length == 1) {
+		return newData
+	} else {
+		return multiFilter(newData, filterFunctions.slice(1))
+	}
+}
+function updateTypeBar(filters, data){
+	var svg = d3.select("#type").select("svg").select(".inlet")
+	var filters = buildFilterFunctions("type", filters)
+	var newData = multiFilter(data, filters)
+	var width = 320, height = 165
+	var margin = {}
+	var tip = d3.tip()
+		.attr("class", "d3-tip")
+		.html(function(d){return "<p>" + d.key + "</p><p>" + d.values.length + " incidents</p>"})
+	margin["top"] = margin["bottom"] = height * 0.1
+	margin["right"] = margin["left"] = width * 0.1
+	height = height - margin.top - margin.bottom
+	width = width - margin.left - margin.right
+	// console.log(filters)
+	var tip = d3.tip()
+		.attr("class", "d3-tip")
+		.html(function(d){return "<p>" + d.key + "</p><p>" + d.values.length + " incidents</p>"})
+
+	var nest = d3.nest()
+		.key(function(d){return d.type})
+		.entries(newData)
+	var y = d3.scale.linear()
+	    .domain([0, Math.ceil(d3.max(nest, function(d){return d.values.length}) / 5) * 5])
+	    .range([height, 0]);
+	var yAxis = d3.svg.axis()
+		.scale(y)
+		.orient("left");
+	var x = d3.scale.ordinal()
+		.domain(nest.map(function(d){return d.key}))
+		.rangeBands([0,width], 0.2)
+	var color = d3.scale.category20().domain(x.domain())
+	var bars = svg.selectAll("rect")
+		.data(nest, function(d){return d.key})
+	bars.exit().transition().duration(300)
+		.attr("width", 0)
+		.attr("height", 0)
+		.remove()
+	bars.transition().delay(400).duration(300)
+		.attr("x", function(d){return x(d.key)})
+		.attr("y", function(d) { return y(d.values.length); })
+		.attr("height", function(d) { return height - y(d.values.length); })
+		.attr("width", x.rangeBand())
+
+	bars.enter().append("rect")
+		.attr("class", "bar")
+		.attr("x", function(d){return x(d.key)})
+		.attr("y", function(d) { return y(d.values.length); })
+		.attr("height", 0)
+		.attr("width", 0)
+	  .transition().delay(700).duration(300)
+		.attr("height", function(d) { return height - y(d.values.length); })
+		.attr("width", x.rangeBand())
+		.attr("fill", function(d){return color(d.key)})
+	bars.on("mouseover", tip.show)
+		.on("mouseout", tip.hide)
+		.on("click", rectClick(data, svg, "type"));
+	svg.select(".y.axis").transition().duration(1000).call(yAxis)
+	// console.log(multiFilter(data, filters))
+}
 function buildCatBar(data){
 	var width = 320, height = 165
-	
-	var svg = d3.select("#type").append("svg")
+	var tip = d3.tip()
+		.attr("class", "d3-tip")
+		.html(function(d){return "<p>" + d.key + "</p><p>" + d.values.length + " incidents</p>"})
+	var svg = d3.select("#category").append("svg")
 		.attr("height", height)
 		.attr("width", width)
+		.call(tip);
 	
 	var margin = {}
 	margin["top"] = margin["bottom"] = height * 0.1
 	margin["right"] = margin["left"] = width * 0.1
 	height = height - margin.top - margin.bottom
 	width = width - margin.left - margin.right
-
+	svg.append("text")
+		.attr("x", margin.left)
+		.attr("y", 10)
+		.text("Event category")
 	var nest = d3.nest()
 		.key(function(d){return d.category})
 		.entries(data)
@@ -166,35 +319,105 @@ function buildCatBar(data){
 	var x = d3.scale.ordinal()
 		.domain(nest.map(function(d){return d.key}))
 		.rangeBands([0,width], 0.2)
+	console.log([x.range(), x.domain()])
 	var color = d3.scale.category20b().domain(x.domain())
 	svg = svg.append("g")
+		.attr("class", "inlet")
 		.attr("transform", "translate(" + margin.left + "," + margin.top + ")")
-	var bars = svg.selectAll("g")
+	var bars = svg.selectAll("rect")
 		.data(nest)
-	  .enter().append("g")
-	    .attr("transform", function(d) { return "translate(" + x(d.key) + ",0)"; });
-	bars.append("rect")
-      .attr("y", function(d) { return y(d.values.length); })
-      .attr("height", function(d) { return height - y(d.values.length); })
-      .attr("width", x.rangeBand())
-      .attr("fill", function(d){return color(d.key)});
+	  .enter().append("rect")
+		.attr("x", function(d){return x(d.key)})
+		.attr("y", function(d) { return y(d.values.length); })
+		.attr("height", function(d) { return height - y(d.values.length); })
+		.attr("width", x.rangeBand())
+		.attr("fill", function(d){return color(d.key)})
+		.on("mouseover", tip.show)
+		.on("mouseout", tip.hide)
+		.on("click", rectClick(data, svg, "category"));
     svg.append("g")
 	    .attr("class", "y axis")
 		.call(yAxis);
 }
+function updateCatBar(filters, data){
+	var svg = d3.select("#category").select("svg").select(".inlet")
+	console.log(filters)
+	var filters = buildFilterFunctions("category", filters)
+	var newData = multiFilter(data, filters)
+
+	var width = 320, height = 165
+	var margin = {}
+	margin["top"] = margin["bottom"] = height * 0.1
+	margin["right"] = margin["left"] = width * 0.1
+	height = height - margin.top - margin.bottom
+	width = width - margin.left - margin.right
+	// console.log(filters)
+	var tip = d3.tip()
+		.attr("class", "d3-tip")
+		.html(function(d){return "<p>" + d.key + "</p><p>" + d.values.length + " incidents</p>"})
+
+	var nest = d3.nest()
+		.key(function(d){return d.category})
+		.entries(newData)
+	// console.log(d3.sum(nest, function(d){return d.values.length}))
+	console.log(nest.length)
+	var y = d3.scale.linear()
+	    .domain([0, Math.ceil(d3.max(nest, function(d){return d.values.length}) / 5) * 5])
+	    .range([height, 0]);
+	var yAxis = d3.svg.axis()
+		.scale(y)
+		.orient("left");
+	var x = d3.scale.ordinal()
+		.domain(nest.map(function(d){return d.key}))
+		.rangeBands([0,width], 0.2)
+	console.log([x.range(), x.domain()])
+	var color = d3.scale.category20b().domain(x.domain())
+	var bars = svg.selectAll("rect")
+		.data(nest, function(d){return d.key})
+	bars.exit().transition().duration(300)
+		.attr("width", 0)
+		.attr("height", 0)
+		.remove()
+	bars.transition().delay(400).duration(300)
+		.attr("x", function(d){return x(d.key)})
+		.attr("y", function(d) { return y(d.values.length); })
+		.attr("height", function(d) { return height - y(d.values.length); })
+		.attr("width", x.rangeBand())
+
+	bars.enter().append("rect")
+		.attr("class", "bar")
+		.attr("x", function(d){return x(d.key)})
+		.attr("y", function(d) { return y(d.values.length); })
+		.attr("height", 0)
+		.attr("width", 0)
+	  .transition().delay(700).duration(300)
+		.attr("height", function(d) { return height - y(d.values.length); })
+		.attr("width", x.rangeBand())
+		.attr("fill", function(d){return color(d.key)});
+	bars.on("mouseover", tip.show)
+		.on("mouseout", tip.hide)
+		.on("click", rectClick(data, svg, "category"));
+	svg.select(".y.axis").transition().duration(1000).call(yAxis)
+}
 function buildAttackBar(data){
 	var width = 320, height = 165
-	
+	var tip = d3.tip()
+		.attr("class", "d3-tip")
+		.html(function(d){return "<p>" + d.key + "</p><p>" + d.values.length + " incidents</p>"})
 	var svg = d3.select("#attack").append("svg")
 		.attr("height", height)
 		.attr("width", width)
+		.call(tip)
 	
 	var margin = {}
 	margin["top"] = margin["bottom"] = height * 0.1
 	margin["right"] = margin["left"] = width * 0.1
 	height = height - margin.top - margin.bottom
 	width = width - margin.left - margin.right
-
+	svg.append("text")
+		.attr("x", margin.left)
+		.attr("y", 10)
+		.text("Attack on")
 	var nest = d3.nest()
 		.key(function(d){return d.attackon})
 		.entries(data)
@@ -209,19 +432,85 @@ function buildAttackBar(data){
 		.rangeBands([0,width], 0.2)
 	var color = d3.scale.category20c().domain(x.domain())
 	svg = svg.append("g")
+		.attr("class", "inlet")
 		.attr("transform", "translate(" + margin.left + "," + margin.top + ")")
-	var bars = svg.selectAll("g")
-		.data(nest)
-	  .enter().append("g")
-	    .attr("transform", function(d) { return "translate(" + x(d.key) + ",0)"; });
-	bars.append("rect")
+		.call(tip);
+	var bars = svg.selectAll("rect")
+		.data(nest, function(d){return d.key})
+	  .enter().append("rect")
+	    // .attr("transform", function(d) { return "translate(" + x(d.key) + ",0)"; });
+	// bars.append("rect")
+	  .attr("x", function(d){return x(d.key)})
       .attr("y", function(d) { return y(d.values.length); })
       .attr("height", function(d) { return height - y(d.values.length); })
       .attr("width", x.rangeBand())
-      .attr("fill", function(d){return color(d.key)});
+      .attr("fill", function(d){return color(d.key)})
+      .on("mouseover", tip.show)
+      .on("mouseout", tip.hide)
+      .on("click", rectClick(data, svg, "attackon"));
     svg.append("g")
 	    .attr("class", "y axis")
 		.call(yAxis);
+}
+function updateAttackBar(filters, data){
+	var svg = d3.select("#attack").select("svg").select(".inlet")
+
+	var filters = buildFilterFunctions("attackon", filters)
+	var newData = multiFilter(data, filters)
+
+	var width = 320, height = 165
+	var margin = {}
+	margin["top"] = margin["bottom"] = height * 0.1
+	margin["right"] = margin["left"] = width * 0.1
+	height = height - margin.top - margin.bottom
+	width = width - margin.left - margin.right
+	// console.log(filters)
+	var tip = d3.tip()
+		.attr("class", "d3-tip")
+		.html(function(d){return "<p>" + d.key + "</p><p>" + d.values.length + " incidents</p>"})
+
+	var nest = d3.nest()
+		.key(function(d){return d.attackon})
+		.entries(newData)
+	// console.log(d3.sum(nest, function(d){return d.values.length}))
+
+	var y = d3.scale.linear()
+	    .domain([0, Math.ceil(d3.max(nest, function(d){return d.values.length}) / 5) * 5])
+	    .range([height, 0]);
+	var yAxis = d3.svg.axis()
+		.scale(y)
+		.orient("left");
+	var x = d3.scale.ordinal()
+		.domain(nest.map(function(d){return d.key}))
+		.rangeBands([0,width], 0.2)
+	console.log([x.range(), x.domain()])
+	var color = d3.scale.category20c().domain(x.domain())
+	var bars = svg.selectAll("rect")
+		.data(nest, function(d){return d.key})
+	bars.exit().transition().duration(300)
+		.attr("width", 0)
+		.attr("height", 0)
+		.remove()
+	bars.transition().delay(400).duration(300)
+		.attr("x", function(d){return x(d.key)})
+		.attr("y", function(d) { return y(d.values.length); })
+		.attr("height", function(d) { return height - y(d.values.length); })
+		.attr("width", x.rangeBand())
+
+	bars.enter().append("rect")
+		.attr("class", "bar")
+		.attr("x", function(d){return x(d.key)})
+		.attr("y", function(d) { return y(d.values.length); })
+		.attr("height", 0)
+		.attr("width", 0)
+	  .transition().delay(700).duration(300)
+		.attr("height", function(d) { return height - y(d.values.length); })
+		.attr("width", x.rangeBand())
+		.attr("fill", function(d){return color(d.key)});
+	bars.on("mouseover", tip.show)
+		.on("mouseout", tip.hide)
+		.on("click", rectClick(data, svg, "attackon"));
+	svg.select(".y.axis").transition().duration(1000).call(yAxis)
 }
 function buildHist(data){
 	var width = 320, height = 165
@@ -234,6 +523,11 @@ function buildHist(data){
 	margin["right"] = margin["left"] = width * 0.1
 	height = height - margin.top - margin.bottom
 	width = width - margin.left - margin.right
+
+	svg.append("text")
+		.attr("x", margin.left)
+		.attr("y", 10)
+		.text("Events by casualty count")
 
 	var countFormat = d3.format(",.0f");
 	var x = d3.scale.linear()
@@ -289,6 +583,7 @@ function buildMap(data){
 		,"features": data.map(function(d){
 			return {
 				"type": "Feature"
+				,"id": d.id
 				,"properties": {
 					"wounded": parseInt(d.civilianwia)
 					,"killed": parseInt(d.civiliankia)
@@ -304,7 +599,7 @@ function buildMap(data){
 	var transform = d3.geo.transform({point: projectPoint}),
 		path = d3.geo.path().projection(transform).pointRadius(3);
 
-	var dots = g.selectAll(".dot").data(collection.features)
+	var dots = g.selectAll(".dot").data(collection.features, function(d){return d.id})
 		.enter()
 		.append("path")
 
@@ -364,6 +659,28 @@ function buildMap(data){
 		this.stream.point(point.x, point.y);
 	} // end projectPoint
 }
+// function updateMap(filters, data){
+// 	var filters = buildFilterFunctions("", filters)
+// 	var newData = multiFilter(data, filters)
+// 	var collection = {
+// 		"type": "FeatureCollection"
+// 		,"features": newData.map(function(d){
+// 			return {
+// 				"type": "Feature"
+// 				,"id": d.id
+// 				,"properties": {
+// 					"wounded": parseInt(d.civilianwia)
+// 					,"killed": parseInt(d.civiliankia)
+// 				}
+// 				,"geometry": {
+// 					"type": "Point"
+// 					,"coordinates" : [parseFloat(d.longitude), parseFloat(d.latitude)]
+// 				}
+// 			}
+// 		})
+// 	}
+// 	".leaflet-zoom-hide"
+// }
 function pointsReduce(points) {
 	// Takes an array of points with x-y coordinates & radii
 	// Returns array without overlap
