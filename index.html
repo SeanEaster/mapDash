@@ -109,9 +109,130 @@ table {
 <script src="http://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.2/leaflet.js"></script>
 <script src="d3-tip.js"></script>
 <script>
+var map = {
+	width: 960
+	,height: 500
+	,collectionBuild: function(data){
+		return {
+			"type": "FeatureCollection"
+			,"features": data.map(function(d){
+				return {
+					"type": "Feature"
+					,"id": d.id
+					,"properties": {
+						"wounded": parseInt(d.civilianwia)
+						,"killed": parseInt(d.civiliankia)
+					}
+					,"geometry": {
+						"type": "Point"
+						,"coordinates" : [parseFloat(d.longitude), parseFloat(d.latitude)]
+					}
+				}
+			})
+		}
+	}
+	,build: function(data){
+		var width = this.width, height = this.height
+		this.data = data
+		this.curData = data
+		var map = new L.Map("map", {center: [34.1, 68], zoom: 6})
+		    .addLayer(new L.TileLayer("http://{s}.tiles.mapbox.com/v3/examples.map-zr0njcqy/{z}/{x}/{y}.png"));
+		this.map = map
+		var svg = d3.select(map.getPanes().overlayPane).append("svg"),
+	    	g = svg.append("g").attr("class", "leaflet-zoom-hide");
+		this.g = g;
+		var collection = this.collectionBuild(data)
+		this.collection = collection
+
+		var transform = d3.geo.transform({point: projectPoint}),
+			path = d3.geo.path().projection(transform).pointRadius(3);
+		this.transform = transform, this.path = path
+		var dots = g.selectAll(".dot").data(collection.features, function(d){return d.id})
+			.enter()
+			.append("path")
+		this.dots = dots, this.svg = svg
+		var reset = this.reset(this)
+		map.on("viewreset", reset);
+		console.log(this)
+		reset();
+		
+		// Use Leaflet to implement a D3 geometric transformation.
+		function projectPoint(x, y) {
+			var point = map.latLngToLayerPoint(new L.LatLng(y, x));
+			this.stream.point(point.x, point.y);
+		} // end projectPoint
+	}  // end build
+	,reset: function(thiz){
+		return function(){
+			console.log(thiz)
+			var width = thiz.width, height = thiz.height, path = thiz.path, g = thiz.g, dots = thiz.dots, svg = thiz.svg
+			
+			var collection = thiz.collectionBuild(thiz.curData)
+			console.log(collection)
+			var bounds = thiz.path.bounds(collection), // Change bounds function to work with 
+				topLeft = bounds[0],
+				bottomRight = bounds[1]
+				,newWidth = bottomRight[0] - topLeft[0] < width ? width : bottomRight[0] - topLeft[0]
+				,newHeight = bottomRight[1] - topLeft[1] < height ? height : bottomRight[1] - topLeft[1];
+
+			var radscale = d3.scale.sqrt()
+				.domain([0, d3.sum(collection.features, function(d){return d.properties.wounded + d.properties.killed})])
+				.range([1.5, Math.sqrt(newWidth * newHeight * 0.03 / Math.PI)])
+
+			var points = collection.features.map(function(d){
+				var coordinates = path.centroid(d)
+				return {
+					x: coordinates[0]
+					,y: coordinates[1]
+					,r: radscale(d.properties.wounded + d.properties.killed)
+				}
+			})
+			var groups = g.selectAll(".group").data(pointsReduce(points), function(d){return "x:" + d.x + ",y:" + d.y})
+			
+			groups.exit().remove()
+			groups.enter()
+			  .append("circle")
+				.attr("fill", "#b7cbfa")
+				.attr("class", "group")
+				.attr("stroke", "black")
+				.attr("stroke-width", 2)
+				.attr("r", function(d){return d.r})
+				.attr("cx", function(d){return d.x})
+				.attr("cy", function(d){return d.y})
+				.style("fill-opacity", 0.4)
+			
+			dots.attr("d", path).attr("class", "dot")
+				.style("fill-opacity", 1)
+			svg .attr("width", newWidth)
+				.attr("height", newHeight)
+				.style("left", newWidth == width ? "0px" : topLeft[0] + "px")
+				.style("top", newHeight == height ? "0px" : topLeft[1] + "px");
+			var xTran = newWidth == width ? 0 : -topLeft[0]
+				,yTran = newHeight == height ? 0 : -topLeft[1]
+			
+			g   .attr("transform", "translate(" + xTran + "," + yTran + ")");
+		}
+		// dot.attr("d", path);
+	} // end reset
+	,update: function(filters, data){
+		var g = this.g
+		g.selectAll(".group").data([]).exit().transition().duration(300).attr("r", 0).remove()
+		var filters = buildFilterFunctions("", filters)
+		var newData = multiFilter(data, filters)
+		this.curData = newData
+		var collection = this.collectionBuild(newData)
+		var dots = g.selectAll(".dot").data(collection.features, function(d){return d.id})
+		dots.exit().transition().duration(300).style("fill-opacity", 1e-5).remove()
+		dots.enter()
+			.append("path")
+		this.dots = dots
+		this.reset(this)()
+			// .append("path")
+	}
+}
 var filters = {}
 d3.csv("incidents.csv", function(data){
-	buildMap(data)
+	map.build(data)
 	buildHist(data)
 	buildTypeBar(data)
 	buildCatBar(data)
@@ -123,7 +244,7 @@ function update(filters, data){
 	updateTypeBar(filters, data)
 	updateCatBar(filters, data)
 	updateAttackBar(filters, data)
-	updateMap(filters, data)
+	map.update(filters, data)
 }
 
 function buildFilterFunctions(visKeyField, filters){
@@ -571,94 +692,7 @@ function buildHist(data){
 	    .attr("class", "y axis")
 		.call(yAxis);
 }
-function buildMap(data){
-	var width = 960, height = 500
-	var map = new L.Map("map", {center: [34.1, 68], zoom: 6})
-	    .addLayer(new L.TileLayer("http://{s}.tiles.mapbox.com/v3/examples.map-zr0njcqy/{z}/{x}/{y}.png"));
 
-	var svg = d3.select(map.getPanes().overlayPane).append("svg"),
-    	g = svg.append("g").attr("class", "leaflet-zoom-hide");
-	var collection = {
-		"type": "FeatureCollection"
-		,"features": data.map(function(d){
-			return {
-				"type": "Feature"
-				,"id": d.id
-				,"properties": {
-					"wounded": parseInt(d.civilianwia)
-					,"killed": parseInt(d.civiliankia)
-				}
-				,"geometry": {
-					"type": "Point"
-					,"coordinates" : [parseFloat(d.longitude), parseFloat(d.latitude)]
-				}
-			}
-		})
-	}
-
-	var transform = d3.geo.transform({point: projectPoint}),
-		path = d3.geo.path().projection(transform).pointRadius(3);
-
-	var dots = g.selectAll(".dot").data(collection.features, function(d){return d.id})
-		.enter()
-		.append("path")
-
-	map.on("viewreset", reset);
-	reset();
-
-	// Reposition the SVG to cover the features.
-	function reset() {
-	// d3.selectAll()
-		var bounds = path.bounds(collection), // Change bounds function to work with 
-			topLeft = bounds[0],
-			bottomRight = bounds[1]
-			,newWidth = bottomRight[0] - topLeft[0] < width ? width : bottomRight[0] - topLeft[0]
-			,newHeight = bottomRight[1] - topLeft[1] < height ? height : bottomRight[1] - topLeft[1];
-
-		var radscale = d3.scale.sqrt()
-			.domain([0, d3.sum(collection.features, function(d){return d.properties.wounded + d.properties.killed})])
-			.range([1.5, Math.sqrt(newWidth * newHeight * 0.03 / Math.PI)])
-
-		var points = collection.features.map(function(d){
-			var coordinates = path.centroid(d)
-			return {
-				x: coordinates[0]
-				,y: coordinates[1]
-				,r: radscale(d.properties.wounded + d.properties.killed)
-			}
-		})
-		var groups = g.selectAll(".group").data(pointsReduce(points), function(d){return "x:" + d.x + ",y:" + d.y})
-		groups.exit().remove()
-		groups.enter()
-		  .append("circle")
-			.attr("fill", "#b7cbfa")
-			.attr("class", "group")
-			.attr("stroke", "black")
-			.attr("stroke-width", 2)
-			.attr("r", function(d){return d.r})
-			.attr("cx", function(d){return d.x})
-			.attr("cy", function(d){return d.y})
-			.style("fill-opacity", 0.4)
-		
-		dots.attr("d", path).attr("class", "dot")
-			.style("fill-opacity", 1)
-		svg .attr("width", newWidth)
-			.attr("height", newHeight)
-			.style("left", newWidth == width ? "0px" : topLeft[0] + "px")
-			.style("top", newHeight == height ? "0px" : topLeft[1] + "px");
-		var xTran = newWidth == width ? 0 : -topLeft[0]
-			,yTran = newHeight == height ? 0 : -topLeft[1]
-		
-		g   .attr("transform", "translate(" + xTran + "," + yTran + ")");
-
-		// dot.attr("d", path);
-	} // end reset
-	// Use Leaflet to implement a D3 geometric transformation.
-	function projectPoint(x, y) {
-		var point = map.latLngToLayerPoint(new L.LatLng(y, x));
-		this.stream.point(point.x, point.y);
-	} // end projectPoint
-}
 // function updateMap(filters, data){
 // 	var filters = buildFilterFunctions("", filters)
 // 	var newData = multiFilter(data, filters)
